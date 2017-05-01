@@ -9,6 +9,7 @@ const http = require('http'),
   logUtil = require('./lib/log'),
   util = require('./lib/util'),
   events = require('events'),
+  co = require('co'),
   WebInterface = require('./lib/webInterface'),
   ThrottleGroup = require('stream-throttle').ThrottleGroup;
 
@@ -20,7 +21,7 @@ const http = require('http'),
 //   console.log('Program is using ' + rss + ' mb of Heap.');
 // }, 1000);
 
-// memwatch.on('stats', (info) => { 
+// memwatch.on('stats', (info) => {
 //   console.log('gc !!');
 //   console.log(process.memoryUsage());
 //   const rss = Math.ceil(process.memoryUsage().rss / 1000 / 1000);
@@ -173,6 +174,20 @@ class ProxyCore extends events.EventEmitter {
             logUtil.printLog(color.green(webTip));
           }
 
+          let ruleSummaryString = '';
+          const ruleSummary = this.proxyRule.summary;
+          if (ruleSummary) {
+            co(function *() {
+              if (typeof ruleSummary === 'string') {
+                ruleSummaryString = ruleSummary;
+              } else {
+                ruleSummaryString = yield ruleSummary();
+              }
+
+              logUtil.printLog(color.green(`Active rule is: ${ruleSummaryString}`));
+            });
+          }
+
           self.status = PROXY_STATUS_READY;
           self.emit('ready');
         } else {
@@ -199,6 +214,14 @@ class ProxyCore extends events.EventEmitter {
    */
   close() {
     // clear recorder cache
+
+    // destroy conns & cltSockets when close proxy server
+    for(const [ key, conn ] of this.requestHandler.conns){
+      conn.destroy()
+    }
+    for(const [ key, cltSocket ] of this.requestHandler.cltSockets){
+      cltSocket.destroy()
+    }
 
     this.httpProxyServer && this.httpProxyServer.close();
     this.httpProxyServer = null;
@@ -255,7 +278,7 @@ class ProxyServer extends ProxyCore {
   close() {
     super.close();
     if (this.recorder) {
-      logUtil.printLog('clearing cache file...');      
+      logUtil.printLog('clearing cache file...');
       this.recorder.clear();
     }
     const tmpWebServer = this.webServerInstance;
@@ -280,4 +303,3 @@ module.exports.utils = {
   systemProxyMgr: require('./lib/systemProxyMgr'),
   certMgr,
 };
-
